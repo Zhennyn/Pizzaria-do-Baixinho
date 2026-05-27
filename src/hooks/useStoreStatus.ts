@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-export interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
+import type { Coordinates } from '../types';
 
 export interface StoreStatusHook {
   isOpen: boolean;
@@ -52,23 +48,24 @@ export const useStoreStatus = (): StoreStatusHook => {
     return () => clearInterval(interval);
   }, [checkIfOpen]);
 
-  // Fórmula de Haversine para cálculo de distância entre duas coordenadas
-  const haversineDistance = (coords1: Coordinates, coords2: Coordinates): number => {
-    const toRad = (value: number) => (value * Math.PI) / 180;
-    const R = 6371; // Raio da Terra em km
-
-    const lat1 = toRad(coords1.latitude);
-    const lat2 = toRad(coords2.latitude);
-    const deltaLat = toRad(coords2.latitude - coords1.latitude);
-    const deltaLng = toRad(coords2.longitude - coords1.longitude);
-
-    const a =
-      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-      Math.cos(lat1) * Math.cos(lat2) *
-      Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
-
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distância em linha reta
+  // Função para buscar a distância de rota pela API OSRM
+  const fetchRouteDistance = async (coords1: Coordinates, coords2: Coordinates): Promise<number> => {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords1.longitude},${coords1.latitude};${coords2.longitude},${coords2.latitude}?overview=false`;
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        // Distância retornada em metros, converte para quilômetros
+        return data.routes[0].distance / 1000;
+      } else {
+        throw new Error('Não foi possível traçar a rota até este endereço.');
+      }
+    } catch (err) {
+      console.error('Erro na API OSRM:', err);
+      // Fallback em caso de erro na API: retorna um erro para não cobrar frete errado
+      throw new Error('Falha ao calcular rota.');
+    }
   };
 
   const getUserLocation = (): Promise<Coordinates> => {
@@ -84,7 +81,6 @@ export const useStoreStatus = (): StoreStatusHook => {
           });
         },
         (err) => {
-          // Trata erros específicos de geolocalização
           switch (err.code) {
             case err.PERMISSION_DENIED:
               reject(new Error('Permissão de localização negada pelo usuário.'));
@@ -107,32 +103,27 @@ export const useStoreStatus = (): StoreStatusHook => {
 
   const calculateShipping = useCallback(async (userCoords?: Coordinates): Promise<{ shippingPrice: number; distance: string; coordsUsed: Coordinates }> => {
     try {
-      setError(null); // Reseta erros antes de calcular
+      setError(null);
 
-      // Obtém as coordenadas (usa as fornecidas ou busca no navegador)
       let coordsToUse = userCoords;
       if (!coordsToUse) {
         coordsToUse = await getUserLocation();
       }
 
-      // Calcula distância em linha reta
-      const rawDist = haversineDistance(storeCoords, coordsToUse);
-
-      // Aplica fator de correção de 20% para o trajeto real nas ruas
-      const correctedDist = rawDist * 1.2;
-      const formattedDistance = `${correctedDist.toFixed(1)} km`;
+      // Calcula distância em Rota usando OSRM
+      const routeDistance = await fetchRouteDistance(storeCoords, coordsToUse);
+      const formattedDistance = `${routeDistance.toFixed(1)} km`;
 
       // Lógica de Preço
-      // Até 5km: R$ 5,00
+      // 1 a 5km: R$ 5,00
       let price = 5;
 
-      if (correctedDist > 5) {
+      if (routeDistance > 5) {
         // A cada 1km adicional acima de 5km: + R$ 1,00 (arredondado para cima)
-        const additional = Math.ceil(correctedDist - 5);
+        const additional = Math.ceil(routeDistance - 5);
         price += additional * 1;
       }
 
-      // Atualiza os estados do Hook
       setDistance(formattedDistance);
       setShippingPrice(price);
 
