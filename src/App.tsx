@@ -604,7 +604,7 @@ function App() {
                       </div>
                       <div>
                         <h4 className="font-bold text-white">Horário de Funcionamento</h4>
-                        <p className="text-sm">Terça a Domingo: 18h às 23h30</p>
+                        <p className="text-sm">Quarta a Domingo: 18h às 23h30</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-gray-300 bg-white/5 p-4 rounded-xl border border-white/5 hover:bg-white/10 transition-colors">
